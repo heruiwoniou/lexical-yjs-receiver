@@ -10,7 +10,7 @@ import invariant, {
 import { AbstractType, XmlElement, XmlText, Map as YMap } from "yjs";
 
 export type SharedType = XmlText | YMap<unknown> | XmlElement;
-export type ParentSharedType = BaseNode | null;
+export type ParentNodeType = BaseNode | null;
 export type NodeKey = string;
 
 export type Delta = {
@@ -39,13 +39,13 @@ export class BaseNode {
   _next: NodeKey | null = null;
   _prev: NodeKey | null = null;
   _sharedType: SharedType;
-  _parent: ParentSharedType;
+  _parent: ParentNodeType;
   _converter: Converter;
   _properties: Record<string, any> = {};
 
   constructor(
     sharedType: SharedType,
-    parent: ParentSharedType,
+    parent: ParentNodeType,
     converter: Converter
   ) {
     this._key = "";
@@ -62,22 +62,36 @@ export class BaseNode {
     this._key = key;
   }
 
-  getFirstChild() {
+  getFirstChild<T extends BaseNode>(this: T): T | null {
     const firstKey = this._first;
     const map = this._converter.nodeMap;
-    if (firstKey && !map.has(firstKey)) {
-      return map.get(firstKey) as VirtualNode;
+    if (firstKey && map.has(firstKey)) {
+      return map.get(firstKey) as unknown as T;
     }
     return null;
   }
 
-  getNextSibling() {
+  getPreviousSibling<T extends BaseNode>(this: T): T | null {
+    const prevKey = this._prev;
+    const map = this._converter.nodeMap;
+    if (prevKey && map.has(prevKey)) {
+      return map.get(prevKey) as unknown as T;
+    }
+
+    return null;
+  }
+
+  getNextSibling<T extends BaseNode>(this: T): T | null {
     const nextKey = this._next;
     const map = this._converter.nodeMap;
-    if (nextKey && !map.has(nextKey)) {
-      return map.get(nextKey) as VirtualNode;
+    if (nextKey && map.has(nextKey)) {
+      return map.get(nextKey) as unknown as T;
     }
     return null;
+  }
+
+  getParent<T extends BaseNode>(this: T): T | null {
+    return this._parent as T;
   }
 }
 
@@ -99,7 +113,7 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
   _children: VirtualNode[];
   constructor(
     sharedType: SharedType,
-    parent: ParentSharedType,
+    parent: ParentNodeType,
     converter: Converter
   ) {
     super(sharedType, parent, converter);
@@ -301,9 +315,17 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
           }
         }
 
-        // TODO:
+        if (child && cacheKey !== undefined && !nodeKeys.has(cacheKey)) {
+          const needToRemoveNode = this._converter.nodeMap.get(cacheKey);
 
-        // writeableNode = this as VirtualNode;
+          if (needToRemoveNode) {
+            removeFromParent(needToRemoveNode);
+          }
+          i--;
+          prevIndex++;
+          continue;
+        }
+
         // Create / Replace
         const childKey = createChildrenVirtualNode(child);
         this._converter.nodeMap.set(childKey, child);
@@ -331,17 +353,19 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
 
         prevChildNode = child;
       }
+    }
 
-      // if (childrenLength > 1) {
-      //   // Newly inserted to the header node
-      //   if (i === 0 && !node._next) {
+    for (let i = 0; i < childrenLength; i++) {
+      const prevChildKey = prevChildrenKeys[i];
 
-      //   }
+      if (!visitedKeys.has(prevChildKey)) {
+        const node = this._converter.nodeMap.get(prevChildKey);
 
-      //   // Newly inserted into the internal node
-      //   if (i !== 0 && node._prev !== children[i - 1]._key) {
-      //   }
-      // }
+        if (node) {
+          node.destroy();
+          removeFromParent(node);
+        }
+      }
     }
   }
 
@@ -352,6 +376,61 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
   setChildren(...children: VirtualNode[]): void {
     this._children = children;
   }
+
+  destroy() {
+    const nodeMap = this._converter.nodeMap;
+    const children = this._children;
+
+    for (let i = 0; i < children.length; i++) {
+      children[i].destroy();
+    }
+
+    nodeMap.delete(this._key);
+  }
+}
+
+function removeFromParent(node: VirtualNode) {
+  const parent = node.getParent();
+  if (parent) {
+    const prevSibling = node.getPreviousSibling();
+    const nextSibling = node.getNextSibling();
+
+    if (!prevSibling) {
+      if (nextSibling) {
+        parent._first = nextSibling._key;
+        nextSibling._prev = null;
+      } else {
+        parent._first = null;
+      }
+    } else {
+      if (nextSibling) {
+        nextSibling._prev = prevSibling._key;
+        prevSibling._next = nextSibling._key;
+      } else {
+        prevSibling._next = null;
+      }
+      node._prev = null;
+    }
+
+    if (!nextSibling) {
+      if (prevSibling) {
+        parent._last = prevSibling._key;
+        prevSibling._next = null;
+      } else {
+        parent._last = null;
+      }
+    } else {
+      if (prevSibling) {
+        prevSibling._next = nextSibling._key;
+        nextSibling._prev = prevSibling._key;
+      } else {
+        nextSibling._prev = null;
+      }
+      node._next = null;
+    }
+
+    node._parent = null;
+  }
 }
 
 export class TextNode extends VirtualNode {
@@ -360,7 +439,7 @@ export class TextNode extends VirtualNode {
   _normalized: boolean = false;
   constructor(
     sharedType: SharedType,
-    parent: ParentSharedType,
+    parent: ParentNodeType,
     converter: Converter,
     text: string
   ) {
@@ -396,6 +475,7 @@ export class RootNode extends VirtualNode implements IInternalNode {
 export const registerNodes = {
   paragraph: ElementNode,
   text: TextNode,
+  hashtag: TextNode,
   linebreak: LineBreakNode,
   decorator: DecoratorNode,
   heading: ElementNode,
