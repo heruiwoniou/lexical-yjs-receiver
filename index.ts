@@ -17,8 +17,9 @@ http
     );
   })
   .listen(3002, () => {
-    console.log("PORT 3002");
-    setInterval(() => {
-      console.log(converter.getPlainText());
-    }, 5000);
+    converter.on("afterUpdated", () => {
+      const plainText = converter.getPlainText();
+
+      console.log(plainText);
+    })
   });

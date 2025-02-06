@@ -11,6 +11,7 @@ import {
 import WebSocket from "ws";
 import { DecoratorNode, ElementNode, TextNode, VirtualNode } from "./Nodes";
 import invariant, { getOrInitNodeFromSharedType } from "./Utils";
+import EventEmitter from "node:events";
 
 type IConfigRule = (text: string, properties?: Record<string, any>) => string;
 
@@ -25,7 +26,7 @@ interface IConfig {
   };
 }
 
-export class Converter {
+export class Converter extends EventEmitter {
   doc: Doc = new Doc();
   docMap: Map<string, Doc>;
   sharedRoot: XmlText;
@@ -37,6 +38,7 @@ export class Converter {
   reportCount: number = 0;
 
   constructor(config: IConfig) {
+    super();
     this.sharedRoot = this.doc.get("root", XmlText);
     this.docMap = new Map([["main", this.doc]]);
     this.nodeMap = new Map();
@@ -56,11 +58,13 @@ export class Converter {
   }
 
   private providerStatusChange(event: { status: string }) {
-    console.log(event.status);
+    this.emit("providerStatusChange", { status: event.status })
   }
 
   private createHandler() {
     return (events: YEvent<any>[], _transaction: Transaction) => {
+      this.emit("beforeUpdated")
+
       events.forEach((event) => event.delta);
 
       events.forEach((event) => {
@@ -95,6 +99,8 @@ export class Converter {
           invariant(false, "Expected text, element");
         }
       });
+
+      this.emit("afterUpdated")
     };
   }
 
@@ -130,10 +136,8 @@ export class Converter {
         }
       } else if (type === "text") {
         const text = node.getPlainText();
-        if (text.trim()) {
-          return node._properties["__format"] !== 0
-            ? `<${text.trim()}>`
-            : text.trim();
+        if (text) {
+          return text;
         }
         return null;
       }
