@@ -11,6 +11,7 @@ import {
   VirtualNode,
 } from "./Nodes";
 import { XmlElement, XmlText, Map as YMap } from "yjs";
+import { v4 as uuidv4 } from "uuid";
 
 export default function invariant(
   cond?: boolean,
@@ -49,8 +50,6 @@ export function getOrInitNodeFromSharedType(
   if (node === undefined) {
     const type = getNodeTypeFromSharedType(sharedType);
     const Node = registerNodes[type];
-
-    console.log(type);
 
     invariant(Node !== undefined, "Node %s is not registered", type);
 
@@ -189,4 +188,40 @@ export function isExcludedProperty(name: string) {
     return true;
   }
   return false;
+}
+
+export function createChildrenArray(
+  node: VirtualNode,
+  map: Map<string, VirtualNode>
+) {
+  const children = [];
+  let nodeKey = node._first;
+  while (nodeKey !== null) {
+    const node = map.get(nodeKey);
+    if (node === null || node === undefined) {
+      invariant(false, "createChildrenArray: node does not exist in nodeMap");
+    }
+
+    children.push(nodeKey);
+    nodeKey = node._next;
+  }
+
+  return children;
+}
+
+export function createChildrenVirtualNode(node: VirtualNode) {
+  node.setKey(uuidv4());
+
+  if (node instanceof ElementNode) {
+    const sharedType = node._sharedType;
+    node.syncPropertiesFromYjs(null);
+    node.applyChildrenYjsDelta((sharedType as XmlText).toDelta());
+    node.syncChildrenFromYjs();
+  } else if (node instanceof TextNode) {
+    node.syncPropertiesFromYjs(null);
+  } else if (node instanceof DecoratorNode) {
+    node.syncPropertiesFromYjs(null);
+  }
+
+  return node._key;
 }

@@ -1,5 +1,7 @@
 import { Converter } from "./Converter";
-import {
+import invariant, {
+  createChildrenArray,
+  createChildrenVirtualNode,
   getOrInitNodeFromSharedType,
   getPositionFromElementAndOffset,
   isExcludedProperty,
@@ -32,10 +34,15 @@ export interface IVirtualNode {
 
 export class BaseNode {
   _key: NodeKey;
+  _first: NodeKey | null = null;
+  _last?: NodeKey | null = null;
+  _next: NodeKey | null = null;
+  _prev: NodeKey | null = null;
   _sharedType: SharedType;
   _parent: ParentSharedType;
   _converter: Converter;
   _properties: Record<string, any> = {};
+
   constructor(
     sharedType: SharedType,
     parent: ParentSharedType,
@@ -53,6 +60,24 @@ export class BaseNode {
 
   setKey(key: string) {
     this._key = key;
+  }
+
+  getFirstChild() {
+    const firstKey = this._first;
+    const map = this._converter.nodeMap;
+    if (firstKey && !map.has(firstKey)) {
+      return map.get(firstKey) as VirtualNode;
+    }
+    return null;
+  }
+
+  getNextSibling() {
+    const nextKey = this._next;
+    const map = this._converter.nodeMap;
+    if (nextKey && !map.has(nextKey)) {
+      return map.get(nextKey) as VirtualNode;
+    }
+    return null;
   }
 }
 
@@ -215,19 +240,108 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
     const children = this._children;
     const childrenLength = children.length;
 
-    for (let i = 0; i < childrenLength; i++) {
-      const node = children[i];
+    const prevChildrenKeys = createChildrenArray(this, this._converter.nodeMap);
+    // const prevChildrenLength = prevChildrenKeys.length;
 
-      if (node instanceof ElementNode) {
-        const sharedType = node._sharedType;
-        node.syncPropertiesFromYjs(null);
-        node.applyChildrenYjsDelta((sharedType as XmlText).toDelta());
-        node.syncChildrenFromYjs();
-      } else if (node instanceof TextNode) {
-        node.syncPropertiesFromYjs(null);
-      } else if (node instanceof DecoratorNode) {
-        node.syncPropertiesFromYjs(null);
+    const nextChildrenKeys: Array<NodeKey> = [];
+    const visitedKeys = new Set();
+    const self = this as VirtualNode;
+    let prevIndex = 0;
+    let prevChildNode: VirtualNode | null = null;
+    let nodeKeys;
+
+    // if (prevChildrenLength !== childrenLength) {
+    //   writeableNode = this as VirtualNode;
+    // }
+
+    for (let i = 0; i < childrenLength; i++) {
+      const cacheKey = prevChildrenKeys[prevIndex];
+      const child = children[i];
+      const childKey = child._key;
+
+      if (cacheKey === childKey) {
+        const childNeedsUpdating = child.getType() === "text";
+        // Update
+        visitedKeys.add(cacheKey);
+
+        if (childNeedsUpdating) {
+          child._key = cacheKey;
+
+          if (child instanceof ElementNode) {
+            const sharedType = child._sharedType;
+            child.syncPropertiesFromYjs(null);
+            child.applyChildrenYjsDelta((sharedType as XmlText).toDelta());
+            child.syncChildrenFromYjs();
+          } else if (child instanceof TextNode) {
+            child.syncPropertiesFromYjs(null);
+          } else if (child instanceof DecoratorNode) {
+            child.syncPropertiesFromYjs(null);
+          } else if (!(child instanceof LineBreakNode)) {
+            invariant(
+              false,
+              "syncChildrenFromYjs: expected text, element, decorator, or linebreak node"
+            );
+          }
+        }
+
+        nextChildrenKeys[i] = cacheKey;
+        prevChildNode = child;
+        prevIndex++;
+      } else {
+        if (nodeKeys === undefined) {
+          nodeKeys = new Set();
+
+          for (let s = 0; s < childrenLength; s++) {
+            const child = children[s];
+            const childKey = child._key;
+
+            if (childKey !== "") {
+              nodeKeys.add(childKey);
+            }
+          }
+        }
+
+        // TODO:
+
+        // writeableNode = this as VirtualNode;
+        // Create / Replace
+        const childKey = createChildrenVirtualNode(child);
+        this._converter.nodeMap.set(childKey, child);
+        nextChildrenKeys[i] = childKey;
+
+        if (prevChildNode === null) {
+          const nextSibling = self.getFirstChild();
+          self._first = childKey;
+          if (nextSibling !== null) {
+            nextSibling._prev = childKey;
+            child._next = nextSibling._key;
+          }
+        } else {
+          const nextSibling = prevChildNode.getNextSibling();
+          prevChildNode._next = childKey;
+          child._prev = prevChildNode._key;
+          if (nextSibling !== null) {
+            nextSibling._prev = childKey;
+            child._next = nextSibling._key;
+          }
+        }
+        if (i === childrenLength - 1) {
+          self._last = childKey;
+        }
+
+        prevChildNode = child;
       }
+
+      // if (childrenLength > 1) {
+      //   // Newly inserted to the header node
+      //   if (i === 0 && !node._next) {
+
+      //   }
+
+      //   // Newly inserted into the internal node
+      //   if (i !== 0 && node._prev !== children[i - 1]._key) {
+      //   }
+      // }
     }
   }
 
@@ -285,5 +399,8 @@ export const registerNodes = {
   linebreak: LineBreakNode,
   decorator: DecoratorNode,
   heading: ElementNode,
-  link: ElementNode
+  link: ElementNode,
+  list: ElementNode,
+  listitem: ElementNode,
+  suggestion: DecoratorNode,
 };

@@ -30,15 +30,19 @@ export class Converter {
   docMap: Map<string, Doc>;
   sharedRoot: XmlText;
   handler: (events: YEvent<any>[], transaction: Transaction) => void;
+  nodeMap: Map<string, VirtualNode>;
   provider: WebsocketProvider;
   currentIndex: number = 0;
   config: IConfig;
+  reportCount: number = 0;
 
   constructor(config: IConfig) {
     this.sharedRoot = this.doc.get("root", XmlText);
     this.docMap = new Map([["main", this.doc]]);
+    this.nodeMap = new Map();
     const root = new ElementNode(this.sharedRoot, null, this);
     root.setKey("root");
+    root.setProperty("__type", "root");
 
     // @ts-expect-error We need to store the node;
     this.sharedRoot._node = root;
@@ -122,12 +126,14 @@ export class Converter {
             }
           }
         } else {
-          result.push("\n");
+          result.push("");
         }
       } else if (type === "text") {
         const text = node.getPlainText();
         if (text.trim()) {
-          return text.trim();
+          return node._properties["__format"] !== 0
+            ? `<${text.trim()}>`
+            : text.trim();
         }
         return null;
       }
@@ -139,8 +145,7 @@ export class Converter {
     processNode(this.sharedRoot._node, result, false);
     const plainText = result.join("\n").trim();
 
-    console.log(plainText);
-
-    return plainText;
+    return `------------\nText - ${this
+      .reportCount++}:\n------------\n${plainText}`;
   }
 }
