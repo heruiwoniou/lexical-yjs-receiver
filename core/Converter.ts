@@ -287,18 +287,15 @@ export class Converter extends EventEmitter {
   public destroy() {
     if (this.providerStatusChangeHandler) {
       this.provider.off("status", this.providerStatusChangeHandler);
-      this.providerAwarenessUpdateHandler = null;
     }
     if (this.handler) {
       this.sharedRoot.unobserveDeep(this.handler);
-      this.handler = null;
     }
     if (this.providerAwarenessUpdateHandler) {
       this.provider.awareness.off(
         "update",
         this.providerAwarenessUpdateHandler
       );
-      this.providerAwarenessUpdateHandler = null;
     }
 
     this.provider.destroy();
@@ -312,8 +309,9 @@ export class Converter extends EventEmitter {
       this.sharedRoot._node = null;
     }
 
-    this.providerStatusChangeHandler = null;
     this.handler = null;
+    this.providerStatusChangeHandler = null;
+    this.providerAwarenessUpdateHandler = null;
 
     this.emit("destroy");
   }
