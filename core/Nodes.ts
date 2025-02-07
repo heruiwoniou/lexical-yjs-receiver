@@ -111,7 +111,7 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
 
   _type: string | undefined;
   _children: VirtualNode[] = [];
-  
+
   constructor(
     sharedType: SharedType,
     parent: ParentNodeType,
@@ -480,12 +480,43 @@ export const registerNodes = {
   list: ElementNode,
   listitem: ElementNode,
   root: ElementNode,
+  artificial: ElementNode,
+  quote: ElementNode,
+  table: ElementNode,
+  tablecell: ElementNode,
+  tablerow: ElementNode,
+  autolink: ElementNode,
+  overflow: ElementNode,
+  "collapsible-container": ElementNode,
+  "collapsible-content": ElementNode,
+  "collapsible-title": ElementNode,
+  "layout-container": ElementNode,
+  "layout-item": ElementNode,
 
+  specialText: TextNode,
+  tab: TextNode,
   text: TextNode,
   hashtag: TextNode,
+  "code-highlight": TextNode,
+  mention: TextNode,
+  emoji: TextNode,
+  autocomplete: TextNode,
+  keyword: TextNode,
 
   linebreak: LineBreakNode,
 
   decorator: DecoratorNode,
+  image: DecoratorNode,
   suggestion: DecoratorNode,
+  poll: DecoratorNode,
+  sticky: DecoratorNode,
+  "inline-image": DecoratorNode,
+  excalidraw: DecoratorNode,
+  equation: DecoratorNode,
+  horizontalrule: DecoratorNode,
+  tweet: DecoratorNode,
+  youtube: DecoratorNode,
+  figma: DecoratorNode,
+  mark: DecoratorNode,
+  "page-break": DecoratorNode,
 };
