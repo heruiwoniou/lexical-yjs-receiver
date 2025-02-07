@@ -110,7 +110,8 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
   }
 
   _type: string | undefined;
-  _children: VirtualNode[];
+  _children: VirtualNode[] = [];
+  
   constructor(
     sharedType: SharedType,
     parent: ParentNodeType,
@@ -119,15 +120,19 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
     super(sharedType, parent, converter);
     this._children = [];
   }
+
   getPlainText() {
     return "";
   }
+
   getType() {
     return this._type as keyof typeof registerNodes;
   }
+
   getProperties() {
     return this._properties;
   }
+
   applyChildrenYjsDelta(deltas: Delta[]) {
     const children = this._children;
     let currIndex = 0;
@@ -228,6 +233,7 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
       }
     }
   }
+
   syncPropertiesFromYjs(keysChanged: null | Set<string>) {
     const sharedType = this._sharedType;
     const properties =

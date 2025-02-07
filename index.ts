@@ -1,25 +1,7 @@
-import { Converter, IGeneratedRuleContext } from "./core/Converter";
-import http from "node:http";
+import App from "./server";
 
-const converter = new Converter({
-  ws: "ws://localhost:1234",
-  room: "room/initialize/main",
-  // room: "room/initialize/0"
+const PORT = process.env.PORT || 3000;
+
+App.listen(PORT, () => {
+  console.log(`[Shaddow Editor Manager] is running at ${PORT}`);
 });
-
-http
-  .createServer((req, res) => {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        data: "Hello World!",
-      })
-    );
-  })
-  .listen(3002, () => {
-    converter.on("afterUpdated", () => {
-      const plainText = converter.getPlainText();
-
-      console.log(plainText);
-    });
-  });

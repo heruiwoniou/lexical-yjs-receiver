@@ -1,6 +1,7 @@
 import { WebsocketProvider } from "y-websocket";
 import {
   Doc,
+  RelativePosition,
   Transaction,
   XmlText,
   YEvent,
@@ -25,6 +26,16 @@ import {
   IS_UNDERLINE,
   IS_UPPERCASE,
 } from "./Constants";
+
+export type UserState = {
+  anchorPos: null | RelativePosition;
+  color: string;
+  focusing: boolean;
+  focusPos: null | RelativePosition;
+  name: string;
+  awarenessData: object;
+  [key: string]: unknown;
+};
 
 export interface IGeneratedRuleContext {
   text: string;
@@ -130,12 +141,15 @@ export class Converter extends EventEmitter {
   doc: Doc = new Doc();
   docMap: Map<string, Doc>;
   sharedRoot: XmlText;
-  handler: (events: YEvent<any>[], transaction: Transaction) => void;
   nodeMap: Map<string, VirtualNode>;
   provider: WebsocketProvider;
   currentIndex: number = 0;
   config: IConfig;
   reportCount: number = 0;
+
+  handler: ((events: YEvent<any>[], transaction: Transaction) => void) | null;
+  providerStatusChangeHandler: ((event: { status: string }) => void) | null;
+  providerAwarenessUpdateHandler: (() => void) | null;
 
   constructor(config: IConfig) {
     super();
@@ -153,12 +167,26 @@ export class Converter extends EventEmitter {
       WebSocketPolyfill: WebSocket as any,
     });
     this.handler = this.createHandler();
+    this.providerStatusChangeHandler = this.providerStatusChange.bind(this);
+    this.providerAwarenessUpdateHandler =
+      this.providerAwarenessUpdate.bind(this);
     this.sharedRoot.observeDeep(this.handler);
-    this.provider.on("status", this.providerStatusChange.bind(this));
+    this.provider.on("status", this.providerStatusChangeHandler);
+    this.provider.awareness.on("update", this.providerAwarenessUpdateHandler);
+
+    this.emit("initialized");
   }
 
   private providerStatusChange(event: { status: string }) {
     this.emit("providerStatusChange", { status: event.status });
+  }
+
+  private providerAwarenessUpdate() {
+    const awareness = this.provider.awareness;
+    this.emit(
+      "providerAwarenessUpdate",
+      Array.from(awareness.getStates().entries())
+    );
   }
 
   private createHandler() {
@@ -204,7 +232,7 @@ export class Converter extends EventEmitter {
     };
   }
 
-  getPlainText(rules: IGeneratedRules = {}): string {
+  public getPlainText(rules: IGeneratedRules = {}): string {
     const mergedRules = {
       ...DEFAULT_RULES,
       ...rules,
@@ -254,5 +282,39 @@ export class Converter extends EventEmitter {
 
     return `------------\nText - ${this
       .reportCount++}:\n------------\n${plainText}`;
+  }
+
+  public destroy() {
+    if (this.providerStatusChangeHandler) {
+      this.provider.off("status", this.providerStatusChangeHandler);
+      this.providerAwarenessUpdateHandler = null;
+    }
+    if (this.handler) {
+      this.sharedRoot.unobserveDeep(this.handler);
+      this.handler = null;
+    }
+    if (this.providerAwarenessUpdateHandler) {
+      this.provider.awareness.off(
+        "update",
+        this.providerAwarenessUpdateHandler
+      );
+      this.providerAwarenessUpdateHandler = null;
+    }
+
+    this.provider.destroy();
+
+    // @ts-expect-error
+    const root = this.sharedRoot._node;
+
+    if (root) {
+      (root as VirtualNode).destroy();
+      // @ts-expect-error
+      this.sharedRoot._node = null;
+    }
+
+    this.providerStatusChangeHandler = null;
+    this.handler = null;
+
+    this.emit("destroy");
   }
 }
