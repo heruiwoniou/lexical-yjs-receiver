@@ -1,7 +1,7 @@
 import { Converter, UserState } from "./Converter";
 import debug from "debug";
 
-const ws = process.env.YJS_WS || "ws://localhost:1234";
+const ws = process.env.WS || "ws://localhost:1234";
 
 const log = debug("Converter");
 
