@@ -12,19 +12,119 @@ import WebSocket from "ws";
 import { DecoratorNode, ElementNode, TextNode, VirtualNode } from "./Nodes";
 import invariant, { getOrInitNodeFromSharedType } from "./Utils";
 import EventEmitter from "node:events";
+import {
+  IS_BOLD,
+  IS_CAPITALIZE,
+  IS_CODE,
+  IS_HIGHLIGHT,
+  IS_ITALIC,
+  IS_LOWERCASE,
+  IS_STRIKETHROUGH,
+  IS_SUBSCRIPT,
+  IS_SUPERSCRIPT,
+  IS_UNDERLINE,
+  IS_UPPERCASE,
+} from "./Constants";
 
-type IConfigRule = (text: string, properties?: Record<string, any>) => string;
+export interface IGeneratedRuleContext {
+  text: string;
+  properties?: Record<string, any>;
+}
 
-interface IConfig {
+export type GeneratedRule = (context: IGeneratedRuleContext) => string;
+
+export interface IConfig {
   ws: string;
   room: string;
-  rules?: {
-    paragraph?: IConfigRule;
-    linebreak?: IConfigRule;
-    text?: IConfigRule;
-    decorator?: IConfigRule;
-  };
 }
+
+export type IGeneratedRules = {
+  /** Text */
+  text?: GeneratedRule;
+  hashtag?: GeneratedRule;
+
+  /** Element */
+  heading?: GeneratedRule;
+  paragraph?: GeneratedRule;
+  link?: GeneratedRule;
+  list?: GeneratedRule;
+  listitem?: GeneratedRule;
+
+  /** LineBreak */
+  linebreak?: GeneratedRule;
+
+  /** Decorator */
+  decorator?: GeneratedRule;
+  suggestion?: GeneratedRule;
+};
+
+export const DEFAULT_RULES = {
+  heading: (context: IGeneratedRuleContext) => `# ${context.text}\n`,
+  link: (context: IGeneratedRuleContext) => {
+    return `[${context.text}](${context.properties?.__url})`;
+  },
+  list: (context: IGeneratedRuleContext) => `${context.text}`,
+  listitem: (context: IGeneratedRuleContext) => `- ${context.text}\n`,
+  // root
+  text: (context: IGeneratedRuleContext) => {
+    const applyFormats = (text: string, formats: number) => {
+      let result = text;
+
+      if (formats & IS_UPPERCASE) {
+        result = `${text.toUpperCase()}`;
+      }
+
+      if (formats & IS_CAPITALIZE) {
+        result = `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+      }
+
+      if (formats & IS_LOWERCASE) {
+        result = `${text.toLowerCase()}`;
+      }
+
+      if (formats & IS_BOLD) {
+        result = `**${result}**`;
+      }
+
+      if (formats & IS_ITALIC) {
+        result = `*${result}*`;
+      }
+
+      if (formats & IS_UNDERLINE) {
+        result = `__${result}__`;
+      }
+
+      if (formats & IS_STRIKETHROUGH) {
+        result = `~~${result}~~`;
+      }
+
+      if (formats & IS_CODE) {
+        result = `\`${result}\``;
+      }
+
+      if (formats & IS_SUBSCRIPT) {
+        result = `~${result}~`;
+      }
+
+      if (formats & IS_SUPERSCRIPT) {
+        result = `^${result}^`;
+      }
+
+      if (formats & IS_HIGHLIGHT) {
+        result = `==${result}==`;
+      }
+
+      return result;
+    };
+
+    // Apply formats
+    return applyFormats(context.text, context.properties?.__format || 0);
+  },
+  // hashtag
+  // linebreak
+  // decorator
+  // suggestion
+};
 
 export class Converter extends EventEmitter {
   doc: Doc = new Doc();
@@ -58,12 +158,12 @@ export class Converter extends EventEmitter {
   }
 
   private providerStatusChange(event: { status: string }) {
-    this.emit("providerStatusChange", { status: event.status })
+    this.emit("providerStatusChange", { status: event.status });
   }
 
   private createHandler() {
     return (events: YEvent<any>[], _transaction: Transaction) => {
-      this.emit("beforeUpdated")
+      this.emit("beforeUpdated");
 
       events.forEach((event) => event.delta);
 
@@ -100,54 +200,57 @@ export class Converter extends EventEmitter {
         }
       });
 
-      this.emit("afterUpdated")
+      this.emit("afterUpdated");
     };
   }
 
-  getPlainText(): string {
-    const processNode = (
-      node: VirtualNode,
-      result: string[],
-      isSameParagraph: boolean
-    ) => {
-      const type = node.getType();
-      if (type === "paragraph") {
-        let paragraphText = "";
-        const hasChildren = node._children.length > 0;
-        if (hasChildren) {
-          node._children.forEach((child) => {
-            const childText = processNode(child, result, true);
-            if (childText !== null) {
-              if (!isSameParagraph) {
-                paragraphText += "\n";
-              }
-              paragraphText += childText;
-            }
-          });
-          if (paragraphText) {
-            if (isSameParagraph) {
-              result.push(paragraphText);
-            } else {
-              result.push("\n" + paragraphText);
-            }
-          }
-        } else {
-          result.push("");
-        }
-      } else if (type === "text") {
-        const text = node.getPlainText();
-        if (text) {
-          return text;
-        }
-        return null;
-      }
-      return null;
+  getPlainText(rules: IGeneratedRules = {}): string {
+    const mergedRules = {
+      ...DEFAULT_RULES,
+      ...rules,
     };
 
-    const result: string[] = [];
+    const executeFunctionRule = (
+      rule: GeneratedRule,
+      context: IGeneratedRuleContext
+    ) => {
+      if (typeof rule === "function") {
+        return rule(context);
+      }
+      return "";
+    };
+
+    const processNode = (node: VirtualNode) => {
+      if (node._type === "paragraph") {
+        const type = node._properties.__type;
+        const rule =
+          mergedRules[type as keyof typeof mergedRules] ||
+          ((context: IGeneratedRuleContext) => `${context.text}\n\n`);
+
+        const context: IGeneratedRuleContext = {
+          text: node._children.map((child) => processNode(child)).join(""),
+          properties: node.getProperties(),
+        };
+        return executeFunctionRule(rule, context);
+      } else if (node._type === "text") {
+        const type = node._properties?.__type;
+        const rule =
+          (type
+            ? mergedRules[type as keyof typeof mergedRules]
+            : mergedRules.text) ||
+          ((context: IGeneratedRuleContext) => `${context.text}`);
+
+        return executeFunctionRule(rule, {
+          text: (node as TextNode)._text,
+          properties: node.getProperties(),
+        });
+      }
+      return "";
+    };
+
     // @ts-expect-error
-    processNode(this.sharedRoot._node, result, false);
-    const plainText = result.join("\n").trim();
+    const result = processNode(this.sharedRoot._node);
+    const plainText = result.replace(/\n\n/g, "\n").trim();
 
     return `------------\nText - ${this
       .reportCount++}:\n------------\n${plainText}`;

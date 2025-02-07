@@ -255,7 +255,6 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
     const childrenLength = children.length;
 
     const prevChildrenKeys = createChildrenArray(this, this._converter.nodeMap);
-    // const prevChildrenLength = prevChildrenKeys.length;
 
     const nextChildrenKeys: Array<NodeKey> = [];
     const visitedKeys = new Set();
@@ -263,10 +262,6 @@ export class VirtualNode extends BaseNode implements IVirtualNode {
     let prevIndex = 0;
     let prevChildNode: VirtualNode | null = null;
     let nodeKeys;
-
-    // if (prevChildrenLength !== childrenLength) {
-    //   writeableNode = this as VirtualNode;
-    // }
 
     for (let i = 0; i < childrenLength; i++) {
       const cacheKey = prevChildrenKeys[prevIndex];
@@ -474,13 +469,17 @@ export class RootNode extends VirtualNode implements IInternalNode {
 
 export const registerNodes = {
   paragraph: ElementNode,
-  text: TextNode,
-  hashtag: TextNode,
-  linebreak: LineBreakNode,
-  decorator: DecoratorNode,
   heading: ElementNode,
   link: ElementNode,
   list: ElementNode,
   listitem: ElementNode,
+  root: ElementNode,
+
+  text: TextNode,
+  hashtag: TextNode,
+
+  linebreak: LineBreakNode,
+
+  decorator: DecoratorNode,
   suggestion: DecoratorNode,
 };
