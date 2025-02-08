@@ -145,7 +145,6 @@ export class Converter extends EventEmitter {
   provider: WebsocketProvider;
   currentIndex: number = 0;
   config: IConfig;
-  reportCount: number = 0;
 
   handler: ((events: YEvent<any>[], transaction: Transaction) => void) | null;
   providerStatusChangeHandler: ((event: { status: string }) => void) | null;
@@ -191,44 +190,48 @@ export class Converter extends EventEmitter {
 
   private createHandler() {
     return (events: YEvent<any>[], _transaction: Transaction) => {
-      this.emit("beforeUpdated");
+      try {
+        this.emit("beforeUpdated");
 
-      events.forEach((event) => event.delta);
+        events.forEach((event) => event.delta);
 
-      events.forEach((event) => {
-        const node = getOrInitNodeFromSharedType(event.target, this);
-        if (node instanceof ElementNode && event instanceof YTextEvent) {
-          // @ts-expect-error We need to access the private property of the class
-          const { keysChanged, childListChanged, delta } = event;
-          if (keysChanged.size > 0) {
-            node.syncPropertiesFromYjs(keysChanged);
+        events.forEach((event) => {
+          const node = getOrInitNodeFromSharedType(event.target, this);
+          if (node instanceof ElementNode && event instanceof YTextEvent) {
+            // @ts-expect-error We need to access the private property of the class
+            const { keysChanged, childListChanged, delta } = event;
+            if (keysChanged.size > 0) {
+              node.syncPropertiesFromYjs(keysChanged);
+            }
+
+            if (childListChanged) {
+              node.applyChildrenYjsDelta(delta);
+              node.syncChildrenFromYjs();
+            }
+          } else if (node instanceof TextNode && event instanceof YMapEvent) {
+            const { keysChanged } = event;
+
+            if (keysChanged.size > 0) {
+              node.syncPropertiesFromYjs(keysChanged);
+            }
+          } else if (
+            node instanceof DecoratorNode &&
+            event instanceof YXmlEvent
+          ) {
+            const { attributesChanged } = event;
+
+            if (attributesChanged.size > 0) {
+              node.syncPropertiesFromYjs(attributesChanged);
+            }
+          } else {
+            invariant(false, "Expected text, element");
           }
+        });
 
-          if (childListChanged) {
-            node.applyChildrenYjsDelta(delta);
-            node.syncChildrenFromYjs();
-          }
-        } else if (node instanceof TextNode && event instanceof YMapEvent) {
-          const { keysChanged } = event;
-
-          if (keysChanged.size > 0) {
-            node.syncPropertiesFromYjs(keysChanged);
-          }
-        } else if (
-          node instanceof DecoratorNode &&
-          event instanceof YXmlEvent
-        ) {
-          const { attributesChanged } = event;
-
-          if (attributesChanged.size > 0) {
-            node.syncPropertiesFromYjs(attributesChanged);
-          }
-        } else {
-          invariant(false, "Expected text, element");
-        }
-      });
-
-      this.emit("afterUpdated");
+        this.emit("afterUpdated");
+      } catch (e) {
+        this.emit("error", e);
+      }
     };
   }
 
@@ -280,8 +283,7 @@ export class Converter extends EventEmitter {
     const result = processNode(this.sharedRoot._node);
     const plainText = result.replace(/\n\n/g, "\n").trim();
 
-    return `------------\nText - ${this
-      .reportCount++}:\n------------\n${plainText}`;
+    return plainText;
   }
 
   public destroy() {

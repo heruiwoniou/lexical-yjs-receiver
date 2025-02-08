@@ -15,9 +15,7 @@ export function create(room: string) {
       room,
     });
 
-    converter.on("initialized", () => {
-      log(`[${room}] initialized`);
-    });
+    log(`[${room}] initialized`);
 
     converter.on("destroy", () => {
       log(`[${room}] destroy`);
@@ -27,7 +25,7 @@ export function create(room: string) {
       log(`[${room}] afterUpdated`);
       if (converter) {
         const plainText = converter.getPlainText();
-        log(`[${room}]\n${plainText}`);
+        log(`[${room}] Print plainText\n------------\n${plainText}\n------------\n[${room}]`);
       }
     });
 
@@ -43,6 +41,14 @@ export function create(room: string) {
           converter = null;
         }
       }
+    });
+
+    converter.on("error", (error) => {
+      log(`[${room}] error`, error)
+      delete Converters[room];
+      converter?.destroy();
+      
+      create(room);
     });
 
     Converters[room] = converter;
