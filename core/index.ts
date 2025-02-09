@@ -44,7 +44,7 @@ export function create(room: string) {
     });
 
     converter.on("error", (error) => {
-      log(`[${room}] error`, error)
+      log(`[${room}] CatchedError`, error)
       delete Converters[room];
       converter?.destroy();
       

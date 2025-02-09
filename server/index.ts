@@ -10,7 +10,7 @@ const app = new Koa();
 const router = new Router();
 
 app.on("error", (err) => {
-  console.error("server error", err);
+  console.error("[Catched global error]", err);
 });
 
 router.get("/", (ctx) => {
