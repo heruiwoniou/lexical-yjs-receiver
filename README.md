@@ -1,6 +1,6 @@
-# Shaddow Editor Manager
+# Shadow Editor Manager
 
-manager yjs shaddow editor to sync editor text;
+manager yjs shadow editor to sync editor text;
 
 ## Usage
 
@@ -32,9 +32,9 @@ npm run start
 
 ## API
 
-### Create new Shaddow Yjs Editor
+### Create new Shadow Yjs Editor
 ```
-curl -X POST http://localhost:3333/shaddow/:task/:type/create/
+curl -X POST http://localhost:3333/shadow/:task/:type/create/
 
 task: number
 type: disclosure | claims | ...

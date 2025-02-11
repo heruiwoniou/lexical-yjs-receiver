@@ -14,10 +14,10 @@ app.on("error", (err) => {
 });
 
 router.get("/", (ctx) => {
-  ctx.body = "Shaddow Editor Manager is running.";
+  ctx.body = "Shadow Editor Manager is running.";
 });
 
-router.post("/shaddow/:task/:type/create", (ctx) => {
+router.post("/shadow/:task/:type/create", (ctx) => {
   const { task, type } = ctx.params;
 
   Core.create(`${task}/${type}`);
