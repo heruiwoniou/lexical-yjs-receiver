@@ -1,4 +1,6 @@
-import { WebsocketProvider } from "y-websocket";
+import EventEmitter from 'node:events';
+import WebSocket from 'ws';
+import { WebsocketProvider } from 'y-websocket';
 import {
   Doc,
   RelativePosition,
@@ -8,11 +10,7 @@ import {
   YMapEvent,
   YTextEvent,
   YXmlEvent,
-} from "yjs";
-import WebSocket from "ws";
-import { DecoratorNode, ElementNode, TextNode, VirtualNode } from "./Nodes";
-import invariant, { getOrInitNodeFromSharedType } from "./Utils";
-import EventEmitter from "node:events";
+} from 'yjs';
 import {
   IS_BOLD,
   IS_CAPITALIZE,
@@ -25,7 +23,9 @@ import {
   IS_SUPERSCRIPT,
   IS_UNDERLINE,
   IS_UPPERCASE,
-} from "./Constants";
+} from './Constants';
+import { DecoratorNode, ElementNode, TextNode, VirtualNode } from './Nodes';
+import invariant, { debounce, getOrInitNodeFromSharedType } from './Utils';
 
 export type UserState = {
   anchorPos: null | RelativePosition;
@@ -42,11 +42,16 @@ export interface IGeneratedRuleContext {
   properties?: Record<string, any>;
 }
 
-export type GeneratedRule = (context: IGeneratedRuleContext) => string;
+export type GeneratedRule = (
+  context: IGeneratedRuleContext,
+  parent: VirtualNode | null,
+  index: number
+) => string;
 
 export interface IConfig {
   ws: string;
   room: string;
+  token?: string;
 }
 
 export type IGeneratedRules = {
@@ -69,13 +74,20 @@ export type IGeneratedRules = {
   suggestion?: GeneratedRule;
 };
 
-export const DEFAULT_RULES = {
+export const DEFAULT_RULES: IGeneratedRules = {
   heading: (context: IGeneratedRuleContext) => `# ${context.text}\n`,
   link: (context: IGeneratedRuleContext) => {
-    return `[${context.text}](${context.properties?.__url})`;
+    return `[${context.text}](${context.properties?.__url}${context.properties?.__title ? ` ${context.properties?.__title}` : ''})`;
   },
   list: (context: IGeneratedRuleContext) => `${context.text}`,
-  listitem: (context: IGeneratedRuleContext) => `- ${context.text}\n`,
+  listitem: (context: IGeneratedRuleContext, parent) => {
+    const properties = parent?.getProperties();
+    return `${
+      properties?.__listType === 'number'
+        ? `${context.properties?.['__value']}. `
+        : '- '
+    }${context.text}\n`;
+  },
   // root
   text: (context: IGeneratedRuleContext) => {
     const applyFormats = (text: string, formats: number) => {
@@ -93,20 +105,20 @@ export const DEFAULT_RULES = {
         result = `${text.toLowerCase()}`;
       }
 
+      if (formats & IS_STRIKETHROUGH) {
+        result = `~~${result}~~`;
+      }
+
+      if (formats & IS_UNDERLINE) {
+        result = `<u>${result}</u>`;
+      }
+
       if (formats & IS_BOLD) {
         result = `**${result}**`;
       }
 
       if (formats & IS_ITALIC) {
         result = `*${result}*`;
-      }
-
-      if (formats & IS_UNDERLINE) {
-        result = `__${result}__`;
-      }
-
-      if (formats & IS_STRIKETHROUGH) {
-        result = `~~${result}~~`;
       }
 
       if (formats & IS_CODE) {
@@ -150,40 +162,46 @@ export class Converter extends EventEmitter {
   providerStatusChangeHandler: ((event: { status: string }) => void) | null;
   providerAwarenessUpdateHandler: (() => void) | null;
 
+  emitDebounceUpdated: (() => void) | null = null;
+
   constructor(config: IConfig) {
     super();
-    this.sharedRoot = this.doc.get("root", XmlText);
-    this.docMap = new Map([["main", this.doc]]);
+    this.sharedRoot = this.doc.get('root', XmlText);
+    this.docMap = new Map([['main', this.doc]]);
     this.nodeMap = new Map();
     const root = new ElementNode(this.sharedRoot, null, this);
-    root.setKey("root");
-    root.setProperty("__type", "root");
+    root.setKey('root');
+    root.setProperty('__type', 'root');
 
     // @ts-expect-error We need to store the node;
     this.sharedRoot._node = root;
     this.config = config;
     this.provider = new WebsocketProvider(config.ws, config.room, this.doc, {
       WebSocketPolyfill: WebSocket as any,
+      ...(config.token ? { params: { token: config.token } } : {}),
     });
     this.handler = this.createHandler();
     this.providerStatusChangeHandler = this.providerStatusChange.bind(this);
     this.providerAwarenessUpdateHandler =
       this.providerAwarenessUpdate.bind(this);
+    this.emitDebounceUpdated = debounce(() => {
+      this.emit('afterUpdated');
+    }, 500);
     this.sharedRoot.observeDeep(this.handler);
-    this.provider.on("status", this.providerStatusChangeHandler);
-    this.provider.awareness.on("update", this.providerAwarenessUpdateHandler);
+    this.provider.on('status', this.providerStatusChangeHandler);
+    this.provider.awareness.on('update', this.providerAwarenessUpdateHandler);
 
-    this.emit("initialized");
+    this.emit('initialized');
   }
 
   private providerStatusChange(event: { status: string }) {
-    this.emit("providerStatusChange", { status: event.status });
+    this.emit('providerStatusChange', { status: event.status });
   }
 
   private providerAwarenessUpdate() {
     const awareness = this.provider.awareness;
     this.emit(
-      "providerAwarenessUpdate",
+      'providerAwarenessUpdate',
       Array.from(awareness.getStates().entries())
     );
   }
@@ -191,7 +209,7 @@ export class Converter extends EventEmitter {
   private createHandler() {
     return (events: YEvent<any>[], _transaction: Transaction) => {
       try {
-        this.emit("beforeUpdated");
+        this.emit('beforeUpdated');
 
         events.forEach((event) => event.delta);
 
@@ -224,13 +242,13 @@ export class Converter extends EventEmitter {
               node.syncPropertiesFromYjs(attributesChanged);
             }
           } else {
-            invariant(false, "Expected text, element");
+            invariant(false, 'Expected text, element');
           }
         });
 
-        this.emit("afterUpdated");
+        this.emitDebounceUpdated?.();
       } catch (e) {
-        this.emit("error", e);
+        this.emit('error', e);
       }
     };
   }
@@ -243,27 +261,35 @@ export class Converter extends EventEmitter {
 
     const executeFunctionRule = (
       rule: GeneratedRule,
-      context: IGeneratedRuleContext
+      context: IGeneratedRuleContext,
+      parent: VirtualNode | null,
+      index: number
     ) => {
-      if (typeof rule === "function") {
-        return rule(context);
+      if (typeof rule === 'function') {
+        return rule(context, parent, index);
       }
-      return "";
+      return '';
     };
 
-    const processNode = (node: VirtualNode) => {
-      if (node._type === "paragraph") {
+    const processNode = (
+      node: VirtualNode,
+      parent: VirtualNode | null = null,
+      index: number = 0
+    ) => {
+      if (node._type === 'paragraph') {
         const type = node._properties.__type;
         const rule =
           mergedRules[type as keyof typeof mergedRules] ||
           ((context: IGeneratedRuleContext) => `${context.text}\n\n`);
 
         const context: IGeneratedRuleContext = {
-          text: node._children.map((child) => processNode(child)).join(""),
+          text: node._children
+            .map((child, i) => processNode(child, node, i))
+            .join(''),
           properties: node.getProperties(),
         };
-        return executeFunctionRule(rule, context);
-      } else if (node._type === "text") {
+        return executeFunctionRule(rule, context, parent, index);
+      } else if (node._type === 'text') {
         const type = node._properties?.__type;
         const rule =
           (type
@@ -271,31 +297,36 @@ export class Converter extends EventEmitter {
             : mergedRules.text) ||
           ((context: IGeneratedRuleContext) => `${context.text}`);
 
-        return executeFunctionRule(rule, {
-          text: (node as TextNode)._text,
-          properties: node.getProperties(),
-        });
+        return executeFunctionRule(
+          rule,
+          {
+            text: (node as TextNode)._text,
+            properties: node.getProperties(),
+          },
+          parent,
+          index
+        );
       }
-      return "";
+      return '';
     };
 
     // @ts-expect-error
     const result = processNode(this.sharedRoot._node);
-    const plainText = result.replace(/\n\n/g, "\n").trim();
+    const plainText = result.replace(/\n\n/g, '\n').trim();
 
     return plainText;
   }
 
   public destroy() {
     if (this.providerStatusChangeHandler) {
-      this.provider.off("status", this.providerStatusChangeHandler);
+      this.provider.off('status', this.providerStatusChangeHandler);
     }
     if (this.handler) {
       this.sharedRoot.unobserveDeep(this.handler);
     }
     if (this.providerAwarenessUpdateHandler) {
       this.provider.awareness.off(
-        "update",
+        'update',
         this.providerAwarenessUpdateHandler
       );
     }
@@ -314,7 +345,8 @@ export class Converter extends EventEmitter {
     this.handler = null;
     this.providerStatusChangeHandler = null;
     this.providerAwarenessUpdateHandler = null;
+    this.emitDebounceUpdated = null;
 
-    this.emit("destroy");
+    this.emit('destroy');
   }
 }
